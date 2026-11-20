@@ -20,6 +20,25 @@ The stack is `LST`, `LST_UNCERTAINTY`, `LWIR1_EMIS`, `BLUE/GREEN/RED/REDEDGE1-3/
 
 Sources: Landsat 8/9 C2 L2 (Planetary Computer), Sentinel-2 L2A and Copernicus GLO-30 (AWS open data / Earth Search). No credentials are needed.
 
+## Web app (Svelte)
+
+Interactive DEM drape for any stack in `data/`. It reads the COGs directly with geotiff.js over HTTP Range, so there's no export step.
+
+```bash
+cd web && npm install && npm run dev        # http://localhost:5173
+```
+
+- Drape any layer (or S2 true colour) on the Copernicus DEM, with colour ramp, stretch, histogram and cloud masking
+- Vertical exaggeration, sun azimuth/altitude hillshade
+- **Band math**: expressions over layer names (`(NIR_SR - RED_SR)/(NIR_SR + RED_SR)`, `LST - 273.15`, presets incl. NDRE and LST anomaly)
+- **Threshold analysis**: pixels/area above or below a value, with mean LST / NDVI / elevation inside the mask
+- **Probe**: click the terrain to read every layer at that point
+- Coarse / medium / full mesh resolution; PNG export
+
+Set `SAT3D_DATA=/other/dir` to point it at stacks elsewhere.
+
+![NDVI > 0.6 threshold on terrain](docs/img/svelte-ndvi-threshold.png)
+
 ## MCP server
 
 ```bash

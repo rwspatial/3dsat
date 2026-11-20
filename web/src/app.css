@@ -1,0 +1,11 @@
+:root {
+  --bg: #0f1115; --panel: #1a1d24; --panel-2: #232731; --fg: #e6e6e6; --muted: #9aa3b2;
+  --accent: #ffb454; --hit: #00e5ff; --border: #2e3340;
+  color-scheme: dark;
+}
+html, body, #app { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font: 13px/1.45 system-ui, sans-serif; overflow: hidden; }
+* { box-sizing: border-box; }
+select, input, textarea, button { font: inherit; color: var(--fg); background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 5px; padding: 4px 6px; }
+button { cursor: pointer; } button:hover { border-color: var(--accent); }
