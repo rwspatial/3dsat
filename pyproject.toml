@@ -1,0 +1,25 @@
+[project]
+name = "sat3d"
+version = "0.1.0"
+description = "MCP server + tools for multiband satellite imagery draped on DEMs in interactive 3D, with analysis"
+readme = "README.md"
+authors = [
+    { name = "rwspatial", email = "rwspatial@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=2.3.0",
+    "numpy>=2.5.5",
+    "planetary-computer>=1.0.0",
+    "pyproj>=3.8.0",
+    "pystac-client>=0.9.1",
+    "rasterio>=1.5.2",
+]
+
+[project.scripts]
+sat3d = "sat3d.server:main"
+sat3d-build = "sat3d.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
