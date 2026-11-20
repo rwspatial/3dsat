@@ -30,6 +30,7 @@ export class TerrainView {
   }
 
   resize(w, h) {
+    if (!w || !h) return; // hidden tab
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();

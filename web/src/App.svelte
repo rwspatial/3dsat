@@ -3,6 +3,11 @@
   import { TerrainView } from './lib/terrain.js';
   import { listStacks, loadStack, stats, trueColor, evaluate } from './lib/stack.js';
   import { RAMPS, sample, cssGradient, defaultRamp } from './lib/colormaps.js';
+  import StackDiagram from './lib/StackDiagram.svelte';
+
+  const TABS = { map: 'Map', stack: 'Tech stack' };
+  let tab = $state(location.hash === '#stack' ? 'stack' : 'map');
+  $effect(() => { history.replaceState(null, '', tab === 'map' ? location.pathname : '#stack'); });
 
   const PRESET_EXPRS = {
     'NDVI': '(NIR_SR - RED_SR) / (NIR_SR + RED_SR)',
@@ -162,7 +167,15 @@
   });
 </script>
 
-<div class="layout">
+<div class="app">
+<nav class="tabs" role="tablist">
+  {#each Object.entries(TABS) as [k, label]}
+    <button role="tab" aria-selected={tab === k} class:on={tab === k} onclick={() => (tab = k)}>{label}</button>
+  {/each}
+</nav>
+
+<!-- Map stays mounted (hidden) so the WebGL scene and analysis state survive tab switches -->
+<div class="layout" hidden={tab !== 'map'}>
   <aside>
     <header>
       <h1>sat3d · DEM drape</h1>
@@ -274,8 +287,19 @@
   </main>
 </div>
 
+{#if tab === 'stack'}<div class="page"><StackDiagram /></div>{/if}
+</div>
+
 <style>
-  .layout { display: flex; height: 100%; }
+  .app { display: flex; flex-direction: column; height: 100%; }
+  .tabs { display: flex; gap: 2px; padding: 6px 10px 0; background: var(--bg); border-bottom: 1px solid var(--border); flex: none; }
+  .tabs button { width: auto; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0;
+    background: none; color: var(--muted); padding: 7px 16px; margin-bottom: -1px; }
+  .tabs button:hover { color: var(--fg); border-color: transparent; }
+  .tabs button.on { background: var(--panel); color: var(--fg); border-color: var(--border); }
+  .layout { display: flex; flex: 1; min-height: 0; }
+  .layout[hidden] { display: none; }
+  .page { flex: 1; min-height: 0; }
   aside { width: 300px; flex: none; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--border); padding: 12px 14px; }
   main { flex: 1; position: relative; min-width: 0; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }

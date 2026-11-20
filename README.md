@@ -35,6 +35,8 @@ cd web && npm install && npm run dev        # http://localhost:5173
 - **Probe**: click the terrain to read every layer at that point
 - Coarse / medium / full mesh resolution; PNG export
 
+A second **Tech stack** tab (`/#stack`) shows a diagram of how the pieces connect and the scaling path.
+
 Set `SAT3D_DATA=/other/dir` to point it at stacks elsewhere.
 
 ![NDVI > 0.6 threshold on terrain](docs/img/svelte-ndvi-threshold.png)
