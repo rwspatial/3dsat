@@ -9,13 +9,18 @@
   let tab = $state(location.hash === '#stack' ? 'stack' : 'map');
   $effect(() => { history.replaceState(null, '', tab === 'map' ? location.pathname : '#stack'); });
 
-  const PRESET_EXPRS = {
-    'NDVI': '(NIR_SR - RED_SR) / (NIR_SR + RED_SR)',
-    'NDRE (red-edge)': '(NIR_SR - REDEDGE1_SR) / (NIR_SR + REDEDGE1_SR)',
-    'LST °C': 'LST - 273.15',
-    'LST anomaly (K)': 'LST - __MEAN_LST__',
-    'Cool & green (ET proxy)': '(NIR_SR - RED_SR) / (NIR_SR + RED_SR) > 0.5 && LST < 305 ? 1 : 0',
+  // Named calculations. Selected as layer "calc:<name>"; "calc:Custom" uses whatever formula is typed.
+  // (NDVI is not here because it already ships as a base raster.)
+  const CALCS = {
+    'NDRE': { expr: '(NIR_SR - REDEDGE1_SR) / (NIR_SR + REDEDGE1_SR)', ramp: 'viridis', note: 'Red-edge NDVI: crop chlorophyll / N status' },
+    'CIre': { expr: 'NIR_SR / REDEDGE1_SR - 1', ramp: 'viridis', note: 'Red-edge chlorophyll index' },
+    'NDWI': { expr: '(GREEN_SR - NIR_SR) / (GREEN_SR + NIR_SR)', ramp: 'rdbu', note: 'Open water > 0' },
+    'LST °C': { expr: 'LST - 273.15', ramp: 'inferno', note: 'Land surface temperature in Celsius' },
+    'LST anomaly': { expr: 'LST - __MEAN_LST__', ramp: 'rdbu', note: 'K above/below the scene mean' },
+    'Cool & green': { expr: '(NIR_SR - RED_SR) / (NIR_SR + RED_SR) > 0.5 && LST < 305 ? 1 : 0', ramp: 'viridis', note: 'Vigorous, transpiring vegetation (ET proxy), 1 = yes' },
   };
+  const isCalc = (l) => l.startsWith('calc:');
+  const calcName = (l) => l.slice(5);
 
   let canvas, wrap, view;
   let stacks = $state([]);
@@ -34,7 +39,7 @@
   // Draft raster settings: editing these does NOT redraw. "Regenerate raster" applies them.
   let form = $state({
     stackName: '', maxDim: 512,
-    layer: 'LST', expr: PRESET_EXPRS['NDVI'],
+    layer: 'LST', expr: CALCS['NDRE'].expr,
     ramp: 'inferno', autoStretch: true, lo: 0, hi: 1,
     maskClouds: true,
     thOn: false, thOp: '>', thVal: 0,
@@ -44,17 +49,32 @@
 
   const layerNames = $derived(stack ? Object.keys(stack.layers) : []);
   const dirty = $derived(!applied || JSON.stringify(form) !== JSON.stringify(applied.form));
-  const layerLabel = (l) => (l === 'TRUE_COLOR' ? 'True colour' : l === 'EXPRESSION' ? 'Band math' : l);
+  const layerLabel = (l) => (l === 'TRUE_COLOR' ? 'True colour' : isCalc(l) ? `${calcName(l)} (calc)` : l);
 
-  function pickLayer(name) {
-    form.layer = name;
-    if (name !== 'TRUE_COLOR') form.ramp = name === 'EXPRESSION' ? 'rdbu' : defaultRamp(name);
+  // One entry point for the combined Layer dropdown: base raster or calculation
+  function pickLayer(value) {
+    form.layer = value;
     form.autoStretch = true;
+    if (value === 'TRUE_COLOR') return;
+    if (isCalc(value)) {
+      const c = CALCS[calcName(value)];
+      if (c) { form.expr = c.expr; form.ramp = c.ramp; }
+      else form.ramp = 'rdbu';
+    } else form.ramp = defaultRamp(value);
   }
 
-  function usePreset(key) {
-    form.expr = PRESET_EXPRS[key];
-    pickLayer('EXPRESSION');
+  // Editing a preset's formula turns it into a custom calculation, so the dropdown stays truthful
+  function onFormulaInput() {
+    const c = CALCS[calcName(form.layer)];
+    if (!c || form.expr !== c.expr) form.layer = 'calc:Custom';
+  }
+
+  let formulaEl = $state();
+  function insertVar(name) {
+    const el = formulaEl, a = el.selectionStart ?? form.expr.length, b = el.selectionEnd ?? a;
+    form.expr = form.expr.slice(0, a) + name + form.expr.slice(b);
+    onFormulaInput();
+    queueMicrotask(() => { el.focus(); el.setSelectionRange(a + name.length, a + name.length); });
   }
 
   function histogram(values, lo, hi) {
@@ -116,18 +136,18 @@
         view.setStack(s);
         view.setExaggeration(ex);
         stack = s;
-        if (form.layer !== 'TRUE_COLOR' && form.layer !== 'EXPRESSION' && !s.layers[form.layer]) pickLayer('LST');
+        if (form.layer !== 'TRUE_COLOR' && !isCalc(form.layer) && !s.layers[form.layer]) pickLayer('LST');
       } catch (e) { error = String(e); loading = false; return; }
       loading = false;
     }
 
     let values = null;
-    if (form.layer === 'EXPRESSION') {
+    if (isCalc(form.layer)) {
       try { values = evaluate(stack, form.expr.replaceAll('__MEAN_LST__', String(stack.stats.LST.mean))); }
       catch (e) { exprError = e.message; return; }
     } else if (form.layer !== 'TRUE_COLOR') values = stack.layers[form.layer];
 
-    const st = values ? (form.layer === 'EXPRESSION' ? stats(values) : stack.stats[form.layer]) : null;
+    const st = values ? (isCalc(form.layer) ? stats(values) : stack.stats[form.layer]) : null;
     if (st?.n && form.autoStretch) {
       form.lo = +st.p2.toPrecision(4); form.hi = +st.p98.toPrecision(4);
       if (!form.thOn && applied?.form.layer !== form.layer) form.thVal = +(form.lo + (form.hi - form.lo) * 0.8).toPrecision(4);
@@ -155,7 +175,7 @@
     const p = view.pick(e.clientX, e.clientY);
     if (!p) return;
     const vals = Object.fromEntries(layerNames.map((n) => [n, stack.layers[n][p.i]]));
-    if (applied?.form.layer === 'EXPRESSION') vals.EXPRESSION = applied.values[p.i];
+    if (applied && isCalc(applied.form.layer)) vals[layerLabel(applied.form.layer)] = applied.values[p.i];
     probe = { ...p, vals };
   }
 
@@ -224,14 +244,34 @@
 
     {#if stack}
       <section>
-        <h2>Drape layer</h2>
-        <select value={form.layer} onchange={(e) => pickLayer(e.currentTarget.value)}>
-          <option value="TRUE_COLOR">True colour (S2)</option>
-          {#each layerNames as n}<option value={n}>{n}</option>{/each}
-          <option value="EXPRESSION">Band math (expression below)</option>
+        <h2>Layer</h2>
+        <select value={form.layer} onchange={(e) => pickLayer(e.currentTarget.value)} aria-label="Layer to drape">
+          <optgroup label="Base rasters">
+            <option value="TRUE_COLOR">True colour (S2)</option>
+            {#each layerNames as n}<option value={n}>{n}</option>{/each}
+          </optgroup>
+          <optgroup label="Calculations">
+            {#each Object.keys(CALCS) as k}<option value={'calc:' + k}>{k}</option>{/each}
+            <option value="calc:Custom">Custom formula…</option>
+          </optgroup>
         </select>
+
+        {#if isCalc(form.layer)}
+          <div class="calc">
+            {#if CALCS[calcName(form.layer)]}<div class="muted">{CALCS[calcName(form.layer)].note}</div>{/if}
+            <textarea rows="3" bind:this={formulaEl} bind:value={form.expr} oninput={onFormulaInput} spellcheck="false" aria-label="Formula"></textarea>
+            {#if exprError}<p class="err">{exprError}</p>{/if}
+            <div class="vars">
+              {#each layerNames.filter((n) => n !== 'CLOUD_MASK') as n}<button type="button" onclick={() => insertVar(n)}>{n}</button>{/each}
+            </div>
+            <div class="muted">Click a variable to insert it. JS syntax: + − * / , Math.*, a &gt; b ? 1 : 0</div>
+          </div>
+        {/if}
+
         {#if form.layer !== 'TRUE_COLOR'}
-          <select bind:value={form.ramp}>{#each Object.keys(RAMPS) as r}<option>{r}</option>{/each}</select>
+          <div class="row">
+            <select bind:value={form.ramp} aria-label="Colour ramp">{#each Object.keys(RAMPS) as r}<option>{r}</option>{/each}</select>
+          </div>
           <div class="legend" style:background={cssGradient(RAMPS[form.ramp])}></div>
           <div class="row range">
             <input type="number" step="any" bind:value={form.lo} oninput={() => (form.autoStretch = false)} title="Colour range min" />
@@ -240,17 +280,6 @@
           <label class="chk"><input type="checkbox" bind:checked={form.autoStretch} /> Auto stretch (2–98 %)</label>
         {/if}
         <label class="chk"><input type="checkbox" bind:checked={form.maskClouds} /> Mask clouds</label>
-      </section>
-
-      <section class:dim={form.layer !== 'EXPRESSION'}>
-        <h2>Band math</h2>
-        <select onchange={(e) => { usePreset(e.currentTarget.value); e.currentTarget.selectedIndex = 0; }}>
-          <option disabled selected>presets…</option>
-          {#each Object.keys(PRESET_EXPRS) as k}<option>{k}</option>{/each}
-        </select>
-        <textarea rows="2" bind:value={form.expr} oninput={() => form.layer !== 'EXPRESSION' && pickLayer('EXPRESSION')} spellcheck="false"></textarea>
-        {#if exprError}<p class="err">{exprError}</p>{/if}
-        <div class="muted">Layers: {layerNames.join(', ')}</div>
       </section>
 
       {#if form.layer !== 'TRUE_COLOR'}
@@ -302,7 +331,7 @@
           <table class="mono">
             <tbody>
               <tr><td>row, col</td><td>{probe.row}, {probe.col}</td></tr>
-              {#each Object.entries(probe.vals) as [k, v]}<tr class:hl={k === applied?.form.layer}><td>{k}</td><td>{fmt(v)}</td></tr>{/each}
+              {#each Object.entries(probe.vals) as [k, v]}<tr class:hl={applied && (k === applied.form.layer || k === layerLabel(applied.form.layer))}><td>{k}</td><td>{fmt(v)}</td></tr>{/each}
             </tbody>
           </table>
         {:else}<div class="muted">Click the terrain to read every layer at that point.</div>{/if}
@@ -355,7 +384,10 @@
   @media (prefers-reduced-motion: reduce) { .pending button.primary { animation: none; } }
   .status { margin-top: 6px; text-align: center; font-size: 11px; color: var(--muted); }
   .pending .status { color: var(--accent); }
-  section.dim { opacity: 0.6; } section.dim:focus-within { opacity: 1; }
+  optgroup { color: var(--muted); font-style: normal; } option { color: var(--fg); }
+  .calc { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  .vars { display: flex; flex-wrap: wrap; gap: 4px; }
+  .vars button { width: auto; padding: 1px 6px; font-size: 10.5px; font-family: ui-monospace, monospace; border-radius: 4px; }
   .live { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: #7ee78722; color: #7ee787; margin-left: 4px; letter-spacing: 0.04em; }
   .result { background: #0f111555; margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
   main { flex: 1; position: relative; min-width: 0; }
